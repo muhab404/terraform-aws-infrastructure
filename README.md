@@ -1,96 +1,101 @@
-# AWS Web Application Infrastructure with Terraform
+# Terraform AWS Infrastructure
 
-This project provisions a complete AWS infrastructure for a web application using Terraform, including VPC, EC2, RDS PostgreSQL, Lambda, API Gateway, and Route 53.
+This project provisions a complete AWS infrastructure for a web application using Terraform. The infrastructure includes VPC, EC2 instances, RDS database, Lambda functions, API Gateway, Load Balancer, and more.
 
 ## Architecture Overview
 
-The infrastructure includes:
-- **VPC** with public and private subnets
-- **EC2 instance** in private subnet with IAM role for S3 access
-- **Application Load Balancer** for routing traffic to the private EC2 instance
-- **RDS PostgreSQL** database with encryption enabled
-- **Lambda function** that interacts with the database
-- **API Gateway** with REST API routing to Lambda
-- **Route 53** for custom domain management
-- **S3 bucket** with encryption enabled
-- **S3 backend** for storing Terraform state
-- **Security groups** allowing HTTP/SSH access
+The infrastructure follows a multi-tier architecture pattern with the following components:
+
+### Network Layer
+- **VPC**: Custom Virtual Private Cloud (10.0.0.0/16)
+- **Subnets**: 
+  - 2 Public subnets (10.0.1.0/24, 10.0.3.0/24) across different AZs
+  - 2 Private subnets (10.0.2.0/24, 10.0.4.0/24) across different AZs
+- **Internet Gateway**: For public internet access
+- **NAT Gateway**: For private subnet internet access
+- **Route Tables**: Proper routing configuration
+
+### Compute Layer
+- **EC2 Instance**: Application server in private subnet
+- **Bastion Host**: Jump server in public subnet for secure SSH access
+- **Lambda Functions**: Serverless compute for API operations
+
+### Storage Layer
+- **RDS MySQL**: Managed database in private subnet with Multi-AZ setup
+- **S3 Bucket**: Object storage 
+
+### Load Balancing & API
+- **Application Load Balancer (ALB)**: Distributes traffic across instances
+- **API Gateway**: RESTful API endpoint management
+- **Route53**: DNS management and domain routing
+
+### Security
+- **Security Groups**: Network-level security rules
+- **IAM Roles**: Proper access permissions for services
+
+
+## Architecture Diagram
+
+```
+Internet
+    |
+[Internet Gateway]
+    |
+[Public Subnets] - [ALB] - [Bastion Host]
+    |
+[NAT Gateway]
+    |
+[Private Subnets] - [EC2 Instance] - [RDS]
+
+```
 
 ## Prerequisites
 
 1. **AWS CLI** configured with appropriate credentials
-2. **Terraform** installed (version >= 1.0)
+2. **Terraform** >= 1.0 installed
 3. **AWS Account** with necessary permissions
+4. **Domain** registered (for Route53 configuration)
+5. **S3 Backend** bucket and DynamoDB table for state management
 
-## Project Structure
-
-```
-terraform-aws-infrastructure/
-├── main.tf                    # Main configuration
-├── variables.tf               # Input variables
-├── outputs.tf                 # Output values
-├── README.md                  # This file
-└── modules/
-    ├── vpc/                   # VPC module
-    │   ├── main.tf
-    │   ├── variables.tf
-    │   └── outputs.tf
-    ├── ec2/                   # EC2 module
-    │   ├── main.tf
-    │   ├── variables.tf
-    │   └── outputs.tf
-    ├── alb/                   # ALB module
-    │   ├── main.tf
-    │   ├── variables.tf
-    │   └── outputs.tf
-    ├── rds/                   # RDS module
-    │   ├── main.tf
-    │   ├── variables.tf
-    │   └── outputs.tf
-    ├── lambda/                # Lambda module
-    │   ├── main.tf
-    │   ├── variables.tf
-    │   └── outputs.tf
-    └── api-gateway/           # API Gateway module
-        ├── main.tf
-        ├── variables.tf
-        └── outputs.tf
-```
+### Required AWS Permissions
+- EC2 (full access)
+- VPC (full access)
+- RDS (full access)
+- Lambda (full access)
+- API Gateway (full access)
+- Route53 (full access)
+- S3 (full access)
+- IAM (full access)
 
 ## Setup Instructions
 
 ### 1. Clone and Navigate
 ```bash
+git clone <repository-url>
 cd terraform-aws-infrastructure
 ```
 
-### 2. Set Up S3 Backend
-Before running Terraform, create an S3 bucket and DynamoDB table for the backend:
+### 2. Configure Backend (First Time Setup)
+Create the S3 bucket and DynamoDB table for Terraform state:
 
 ```bash
-# Create S3 bucket for Terraform state
-aws s3api create-bucket --bucket terraform-state-bucket-unique-12345 --region us-east-1
-
-# Enable versioning on the bucket
-aws s3api put-bucket-versioning --bucket terraform-state-bucket-unique-12345 --versioning-configuration Status=Enabled
+# Create S3 bucket for state
+aws s3 mb s3://terraform-state-bucket-unique-12345 --region us-east-1
 
 # Create DynamoDB table for state locking
 aws dynamodb create-table \
-  --table-name terraform-lock-table \
-  --attribute-definitions AttributeName=LockID,AttributeType=S \
-  --key-schema AttributeName=LockID,KeyType=HASH \
-  --billing-mode PAY_PER_REQUEST \
-  --region us-east-1
+    --table-name terraform-lock-table \
+    --attribute-definitions AttributeName=LockID,AttributeType=S \
+    --key-schema AttributeName=LockID,KeyType=HASH \
+    --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5 \
+    --region us-east-1
 ```
 
-### 3. Configure Variables
-Edit `variables.tf` or create a `terraform.tfvars` file:
-```hcl
-aws_region = "us-east-1"
-project_name = "webapp"
-domain_name = "yourdomain.com"
-s3_bucket_name = "your-unique-bucket-name"
-db_password = "YourSecurePassword123!"
+### 3. Create EC2 Key Pair
+```bash
+# Create key pair for EC2 access
+aws ec2 create-key-pair --key-name my-webapp-keypair --query 'KeyMaterial' --output text > my-webapp-keypair.pem
+chmod 400 my-webapp-keypair.pem
 ```
 
 ### 4. Initialize Terraform
@@ -98,7 +103,7 @@ db_password = "YourSecurePassword123!"
 terraform init
 ```
 
-### 5. Plan Deployment
+### 5. Plan Infrastructure
 ```bash
 terraform plan
 ```
@@ -107,78 +112,120 @@ terraform plan
 ```bash
 terraform apply
 ```
-Type `yes` when prompted to confirm.
 
-## Important Notes
+When prompted, type `yes` to confirm the deployment.
 
-### Security Considerations
-- **Database Password**: Change the default password in `variables.tf`
-- **S3 Bucket Name**: Must be globally unique
-- **Domain Name**: Update to your actual domain for Route 53
-
-### Lambda Dependencies
-The Lambda function requires the `psycopg2` library for PostgreSQL connectivity. In production, you should:
-1. Create a Lambda layer with `psycopg2`
-2. Package the function with dependencies
-
-### Route 53 Domain
-- The Route 53 hosted zone will be created
-- Update your domain's nameservers to point to AWS Route 53
-- The API will be accessible at `api.yourdomain.com`
-
-## Testing the Deployment
-
-### 1. Test Web Application via ALB
-```bash
-http://<alb_dns_name>
-```
-
-### 2. Test API Gateway
-```bash
-curl https://your-api-id.execute-api.region.amazonaws.com/prod/db
-```
-
-### 3. Test Lambda Function
-The Lambda function connects to PostgreSQL and returns the database version.
-
-### 4. Verify Resources
-Check the AWS Console to verify all resources are created:
-- VPC with subnets
-- EC2 instance running
-- Application Load Balancer
-- RDS PostgreSQL instance
-- Lambda function
-- API Gateway deployment
-- Route 53 hosted zone
-
-## Outputs
-
-After successful deployment, you'll see:
-- VPC and subnet IDs
-- EC2 instance ID
-- ALB DNS name
-- RDS endpoint
+### 7. Verify Deployment
+After successful deployment, you'll see outputs including:
+- VPC ID
+- EC2 Instance ID
+- RDS Endpoint
 - API Gateway URL
-- Route 53 zone ID
-- S3 bucket name
+- Load Balancer DNS Name
+- Bastion Host Public IP
 
-## Cleanup Instructions
+## Configuration Variables
 
-### Destroy Infrastructure
+Key variables can be customized in `variables.tf`:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `aws_region` | AWS region | us-east-1 |
+| `project_name` | Project name prefix | webapp |
+| `vpc_cidr` | VPC CIDR block | 10.0.0.0/16 |
+| `db_username` | Database username | dbadmin |
+| `db_password` | Database password | ChangeMe123! |
+| `domain_name` | Route53 domain | muhab.site |
+| `s3_bucket_name` | S3 bucket name | webapp-bucket-unique-12345 |
+| `key_name` | EC2 key pair name | my-webapp-keypair |
+
+### Custom Variables File
+Create `terraform.tfvars` for custom values:
+```hcl
+aws_region = "us-west-2"
+project_name = "my-webapp"
+db_password = "MySecurePassword123!"
+domain_name = "example.com"
+```
+
+## Accessing Resources
+
+### SSH to EC2 Instance (via Bastion)
+```bash
+# SSH to bastion host
+ssh -i my-webapp-keypair.pem ec2-user@<bastion-public-ip>
+
+# From bastion, SSH to private EC2
+ssh -i my-webapp-keypair.pem ec2-user@<private-ec2-ip>
+```
+
+### Database Connection
+```bash
+# Connect to RDS from EC2 instance
+mysql -h <rds-endpoint> -u dbadmin -p
+```
+
+
+## Teardown Instructions
+
+### 1. Destroy Infrastructure
 ```bash
 terraform destroy
 ```
-Type `yes` when prompted to confirm.
 
-### Manual Cleanup (if needed)
-Some resources might need manual cleanup:
-1. Empty S3 bucket before destruction
-2. Check for any remaining ENIs or security groups
-3. Verify Route 53 hosted zone deletion
+When prompted, type `yes` to confirm the destruction.
+
+### 2. Clean Up Backend Resources (Optional)
+```bash
+# Delete S3 bucket (remove all objects first)
+aws s3 rm s3://terraform-state-bucket-unique-12345 --recursive
+aws s3 rb s3://terraform-state-bucket-unique-12345
+
+# Delete DynamoDB table
+aws dynamodb delete-table --table-name terraform-lock-table --region us-east-1
+```
+
+### 3. Remove Key Pair
+```bash
+# Delete key pair from AWS
+aws ec2 delete-key-pair --key-name my-webapp-keypair
+
+# Remove local key file
+rm my-webapp-keypair.pem
+```
 
 
-### Logs and Monitoring
-- **Lambda Logs**: CloudWatch Logs
-- **API Gateway Logs**: Enable in API Gateway settings
+## Security Considerations
+
+- Database is in private subnet with no direct internet access
+- Bastion host provides secure SSH access
+- Security groups follow principle of least privilege
+- RDS encryption at rest enabled
+- S3 bucket versioning and encryption enabled
+- IAM roles with minimal required permissions
 
 
+
+## Module Structure
+
+```
+modules/
+├── vpc/          # VPC, subnets, gateways, security groups
+├── ec2/          # EC2 instances and related resources
+├── rds/          # RDS database configuration
+├── lambda/       # Lambda functions
+├── api-gateway/  # API Gateway setup
+├── alb/          # Application Load Balancer
+├── bastion/      # Bastion host configuration
+├── s3/           # S3 bucket setup
+└── route53/      # DNS configuration
+```
+
+Each module contains:
+- `main.tf` - Resource definitions
+- `variables.tf` - Input variables
+- `outputs.tf` - Output values
+
+---
+
+**Note**: Always review and customize the configuration according to your specific requirements before deployment. Ensure proper backup and disaster recovery procedures are in place for production environments.
