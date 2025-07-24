@@ -9,4 +9,4 @@ override.tf
 override.tf.json
 .terraform.lock.hcl
 
-README.md
+my-webapp-keypair.pem
