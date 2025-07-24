@@ -8,5 +8,4 @@ crash.log
 override.tf
 override.tf.json
 .terraform.lock.hcl
-
-my-webapp-keypair.pem
+*.pem
